@@ -19,11 +19,9 @@ variable "artifact_repository" {
 }
 
 # Cloud SQL instance connection name: "project:region:instance".
-# TODO: set to the real value (gcloud sql instances describe <name>
-#       --format='value(connectionName)').
 variable "cloudsql_connection_name" {
   type    = string
-  default = "TODO-PROJECT:asia-southeast1:TODO-INSTANCE"
+  default = "decent-genius-503000-h2:asia-southeast1:cocoon-db"
 }
 
 # Database (non-secret parts).
@@ -34,13 +32,13 @@ variable "database_name" {
 
 variable "database_user" {
   type    = string
-  default = "cocoon"
+  default = "cocoon_db_admin"
 }
 
 # GCS media bucket (django-storages). Empty falls back to local FS (not for prod).
 variable "gs_bucket_name" {
   type    = string
-  default = "" # TODO: set to the prod media bucket name.
+  default = "cocoon-media"
 }
 
 variable "gs_location" {
@@ -56,7 +54,7 @@ variable "app_host" {
 
 variable "whatsapp_phone_number_id" {
   type    = string
-  default = "" # TODO: set (non-secret ID; the token/app-secret live in Secret Manager).
+  default = "1203615992845484" # Non-secret ID; token/app-secret live in Secret Manager.
 }
 
 # CI deployer service account (already used by the GitHub Actions workflow).
