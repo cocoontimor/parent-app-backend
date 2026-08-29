@@ -145,33 +145,22 @@ LOGIN_REDIRECT_URL = "/"
 # only because the serializers are reused to shape Inertia page props.
 
 # ---------------------------------------------------------------------------
-# Cache (Redis)
+# Cache
 # ---------------------------------------------------------------------------
-REDIS_HOST = env("REDIS_HOST", default="localhost")
-REDIS_PORT = env("REDIS_PORT", default="6379")
-REDIS_PASSWORD = env("REDIS_PASSWORD", default="")
-
+# In-process cache. The Cloud Run deployment has no Redis; nothing in the app
+# relies on a shared cache (sessions are database-backed).
 CACHES = {
     "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/1"
-        if REDIS_PASSWORD
-        else f"redis://{REDIS_HOST}:{REDIS_PORT}/1",
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
     }
 }
 
 # ---------------------------------------------------------------------------
-# Celery
+# Scheduled tasks
 # ---------------------------------------------------------------------------
-CELERY_BROKER_URL = env("CELERY_BROKER_URL", default=f"redis://{REDIS_HOST}:{REDIS_PORT}/10")
-CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default=f"redis://{REDIS_HOST}:{REDIS_PORT}/11")
-CELERY_TIMEZONE = "UTC"
-CELERY_TASK_IGNORE_RESULT = True
-
-# Schedules live in the database (django-celery-beat), editable via the Django
-# admin without a redeploy. The two default tasks are seeded by a data migration
-# (messaging/migrations/0004); each schedule carries its own timezone.
-CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+# The two periodic jobs (daily digest, hourly lesson release) run as Cloud Run
+# Jobs triggered by Cloud Scheduler — see the `run_daily_digest` and
+# `release_lessons` management commands. No Celery worker/broker is deployed.
 
 # ---------------------------------------------------------------------------
 # WhatsApp Cloud API

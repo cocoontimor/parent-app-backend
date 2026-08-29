@@ -13,9 +13,11 @@ permissions:
 env:
   PROJECT_ID: decent-genius-503000-h2
   REGION: asia-southeast1
-  VM_NAME: cocoon-prod-backend
-  VM_ZONE: asia-southeast1-a
   IMAGE: asia-southeast1-docker.pkg.dev/decent-genius-503000-h2/cocoon-prod/backend
+  SERVICE: cocoon-backend-production
+  MIGRATE_JOB: cocoon-migrate-production
+  DIGEST_JOB: cocoon-daily-digest-production
+  LESSONS_JOB: cocoon-release-lessons-production
 
 jobs:
   build-deploy:
@@ -49,15 +51,26 @@ jobs:
             ${{ env.IMAGE }}:prod
             ${{ env.IMAGE }}:${{ github.sha }}
 
-      - name: Deploy to VM (pull + restart)
+      - name: Deploy (migrate job, then service + task jobs)
         run: |
-          # First push happens before the VM exists (the image must exist so the
-          # VM can pull it on boot). Skip the deploy until the VM is present.
-          if ! gcloud compute instances describe "$VM_NAME" --zone "$VM_ZONE" --project "$PROJECT_ID" >/dev/null 2>&1; then
-            echo "VM $VM_NAME not found yet; image is pushed. Skipping deploy (it will pull on first boot)."
+          set -euo pipefail
+          IMG="${IMAGE}:${GITHUB_SHA}"
+
+          # Infra is provisioned by Terraform (infra/environments/production).
+          # Until the first `tofu apply` has created the service, skip deploy —
+          # the image is pushed and the bootstrap apply will pick it up.
+          if ! gcloud run services describe "$SERVICE" --region "$REGION" --project "$PROJECT_ID" >/dev/null 2>&1; then
+            echo "Service $SERVICE not found yet; image pushed. Run the bootstrap 'tofu apply' first."
             exit 0
           fi
-          gcloud compute ssh "$VM_NAME" \
-            --zone "$VM_ZONE" --project "$PROJECT_ID" \
-            --tunnel-through-iap --quiet \
-            --command 'sudo bash -c '\''TOKEN=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token | jq -r .access_token); docker login -u oauth2accesstoken -p "$TOKEN" https://asia-southeast1-docker.pkg.dev; cd /opt/cocoon && docker compose pull && docker compose up -d'\'''
+
+          # 1) Migrations: point the migrate job at the new image and run to completion.
+          gcloud run jobs update "$MIGRATE_JOB" --image "$IMG" --region "$REGION" --project "$PROJECT_ID"
+          gcloud run jobs execute "$MIGRATE_JOB" --region "$REGION" --project "$PROJECT_ID" --wait
+
+          # 2) Web service: roll out the new image (zero-downtime).
+          gcloud run deploy "$SERVICE" --image "$IMG" --region "$REGION" --project "$PROJECT_ID"
+
+          # 3) Scheduled task jobs: update their image so the next cron uses new code.
+          gcloud run jobs update "$DIGEST_JOB"  --image "$IMG" --region "$REGION" --project "$PROJECT_ID"
+          gcloud run jobs update "$LESSONS_JOB" --image "$IMG" --region "$REGION" --project "$PROJECT_ID"

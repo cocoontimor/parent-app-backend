@@ -17,3 +17,10 @@ media/
 .pytest_cache/
 node_modules/
 frontend/dist/
+
+# Terraform / OpenTofu
+**/.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+crash.log

@@ -438,7 +438,9 @@ def urgent_alerts_create(request):
 
     from messaging.tasks import send_urgent_alert
 
-    send_urgent_alert.delay(alert.id)
+    # Sent synchronously: no Celery/broker in the Cloud Run deployment. Volume is
+    # low (staff post alerts manually), so a blocking WhatsApp fan-out is fine.
+    send_urgent_alert(alert.id)
     return HttpResponseRedirect("/urgent-alerts/")
 
 
