@@ -25,10 +25,11 @@ module "stack" {
 
   # Existing Secret Manager secrets (from the VM deployment), referenced only.
   secret_ids = {
-    SECRET_KEY                 = "django-secret-key-prod"
-    POSTGRES_DATABASE_PASSWORD = "postgres-password-prod"
-    WHATSAPP_ACCESS_TOKEN      = "whatsapp-access-token-prod"
-    WHATSAPP_APP_SECRET        = "whatsapp-app-secret-prod"
+    SECRET_KEY                    = "django-secret-key-prod"
+    POSTGRES_DATABASE_PASSWORD    = "postgres-password-prod"
+    WHATSAPP_ACCESS_TOKEN         = "whatsapp-access-token-prod"
+    WHATSAPP_APP_SECRET           = "whatsapp-app-secret-prod"
+    WHATSAPP_WEBHOOK_VERIFY_TOKEN = "whatsapp-webhook-verify-token-prod"
   }
 
   cicd_sa_email = "cocoon-prod-cicd@decent-genius-503000-h2.iam.gserviceaccount.com"
