@@ -40,46 +40,18 @@ resource "google_compute_url_map" "https" {
   default_service = google_compute_backend_service.backend.id
 }
 
-# --- TLS via Certificate Manager with DNS authorization ----------------------
-# DNS-authorized so the managed cert validates via a DNS record (a CNAME you add
-# in Cloudflare) rather than through the LB. This lets Cloudflare proxy (orange
-# cloud) sit in front: Cloudflare terminates TLS for users, and this cert secures
-# the Cloudflare -> LB origin leg (set Cloudflare SSL mode to Full (strict)).
-
-resource "google_certificate_manager_dns_authorization" "auth" {
-  name    = "${var.name}-dnsauth"
-  project = var.project_id
-  domain  = var.domain
-}
-
-resource "google_certificate_manager_certificate" "cert" {
-  name    = "${var.name}-cert"
-  project = var.project_id
-
-  managed {
-    domains            = [var.domain]
-    dns_authorizations = [google_certificate_manager_dns_authorization.auth.id]
-  }
-}
-
-resource "google_certificate_manager_certificate_map" "map" {
-  name    = "${var.name}-certmap"
-  project = var.project_id
-}
-
-resource "google_certificate_manager_certificate_map_entry" "entry" {
-  name         = "${var.name}-certmap-entry"
-  project      = var.project_id
-  map          = google_certificate_manager_certificate_map.map.name
-  certificates = [google_certificate_manager_certificate.cert.id]
-  hostname     = var.domain
-}
+# --- TLS: Cloudflare Origin certificate (installed out-of-band) --------------
+# Mirrors eq-infra/tiggie: Cloudflare terminates TLS for users at its edge
+# (proxied/orange); this Cloudflare Origin cert secures the Cloudflare -> LB
+# origin leg under Cloudflare "Full (strict)". The cert + key are created
+# out-of-band (gcloud compute ssl-certificates create) so the private key never
+# enters Terraform state; here we only reference it by self-link.
 
 resource "google_compute_target_https_proxy" "https" {
-  name            = "${var.name}-https"
-  project         = var.project_id
-  url_map         = google_compute_url_map.https.id
-  certificate_map = "//certificatemanager.googleapis.com/${google_certificate_manager_certificate_map.map.id}"
+  name             = "${var.name}-https"
+  project          = var.project_id
+  url_map          = google_compute_url_map.https.id
+  ssl_certificates = [var.ssl_certificate]
 }
 
 resource "google_compute_global_forwarding_rule" "https" {
