@@ -1,3 +1,12 @@
+# ---- frontend build (Svelte/Inertia via Vite) -------------------------------
+FROM node:22-slim AS frontend
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci || npm install
+COPY frontend/ ./
+RUN npm run build   # -> /frontend/dist (+ .vite/manifest.json)
+
+# ---- python builder ---------------------------------------------------------
 FROM python:3.12-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -22,6 +31,8 @@ COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 COPY src/ /home/app/src/
 COPY entrypoint.sh /home/app/entrypoint.sh
+# Built frontend assets; django-vite reads the manifest here (BASE_DIR.parent).
+COPY --from=frontend --chown=app:app /frontend/dist /home/app/frontend/dist
 
 EXPOSE 8000
 

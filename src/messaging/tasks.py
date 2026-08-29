@@ -45,7 +45,9 @@ def send_daily_digest():
                     pass
 
         body = "\n".join(lines)
-        send_whatsapp_message(user, template="daily_digest", body=body, variables=[body])
+        send_whatsapp_message(
+            user, template="daily_digest", body=body, variables=[body], acknowledge=True
+        )
 
         DigestQueue.objects.filter(
             id__in=[item.id for item in items]
@@ -74,6 +76,8 @@ def send_urgent_alert(alert_id):
     body = f"URGENT: {alert.title}\n\n{alert.body}"
 
     for parent in parents:
-        send_whatsapp_message(parent, template="urgent_alert", body=body, variables=[body])
+        send_whatsapp_message(
+            parent, template="urgent_alert", body=body, variables=[body], acknowledge=True
+        )
 
     logger.info("Urgent alert %s sent to %d parents", alert_id, parents.count())
