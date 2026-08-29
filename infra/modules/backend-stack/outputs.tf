@@ -2,6 +2,10 @@ output "service_url" {
   value = module.cloud_run.url
 }
 
+output "service_name" {
+  value = module.cloud_run.name
+}
+
 output "runtime_service_account" {
   value = google_service_account.runtime.email
 }

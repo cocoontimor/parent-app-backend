@@ -74,6 +74,12 @@ variable "min_instances" {
   default = 0
 }
 
+variable "ingress" {
+  description = "Cloud Run ingress. Use INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER when fronted by an external LB."
+  type        = string
+  default     = "INGRESS_TRAFFIC_ALL"
+}
+
 variable "max_instances" {
   type    = number
   default = 10

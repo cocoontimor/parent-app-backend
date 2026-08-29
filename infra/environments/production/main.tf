@@ -35,6 +35,30 @@ module "stack" {
   cicd_sa_email = "cocoon-prod-cicd@decent-genius-503000-h2.iam.gserviceaccount.com"
 
   min_instances = 0
+
+  # Only the external HTTPS load balancer may reach the service.
+  ingress = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
+}
+
+# ---- External HTTPS Load Balancer (tiggie pattern) --------------------------
+
+module "cloud_armor" {
+  source = "../../modules/cloud-armor"
+
+  project_id    = "decent-genius-503000-h2"
+  policy_name   = "cocoon-backend-production"
+  allowed_hosts = ["app.cocoontimor.org"]
+}
+
+module "load_balancer" {
+  source = "../../modules/load-balancer"
+
+  project_id        = "decent-genius-503000-h2"
+  region            = "asia-southeast1"
+  name              = "cocoon-backend-production"
+  domain            = "app.cocoontimor.org"
+  cloud_run_service = module.stack.service_name
+  security_policy   = module.cloud_armor.policy_id
 }
 
 output "service_url" {
@@ -51,4 +75,9 @@ output "scheduler_service_account" {
 
 output "migrate_job" {
   value = module.stack.migrate_job
+}
+
+output "load_balancer_ip" {
+  description = "Point app.cocoontimor.org A record here (Cloudflare, DNS-only)."
+  value       = module.load_balancer.ip_address
 }
