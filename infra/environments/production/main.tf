@@ -78,6 +78,11 @@ output "migrate_job" {
 }
 
 output "load_balancer_ip" {
-  description = "Point app.cocoontimor.org A record here (Cloudflare, DNS-only)."
+  description = "Point app.cocoontimor.org A record here (Cloudflare, proxied/orange)."
   value       = module.load_balancer.ip_address
+}
+
+output "cert_dns_auth_record" {
+  description = "Add this CNAME in Cloudflare (DNS-only) to validate the managed cert."
+  value       = module.load_balancer.dns_auth_record
 }

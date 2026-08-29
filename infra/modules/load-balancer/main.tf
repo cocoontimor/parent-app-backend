@@ -40,20 +40,46 @@ resource "google_compute_url_map" "https" {
   default_service = google_compute_backend_service.backend.id
 }
 
-resource "google_compute_managed_ssl_certificate" "cert" {
+# --- TLS via Certificate Manager with DNS authorization ----------------------
+# DNS-authorized so the managed cert validates via a DNS record (a CNAME you add
+# in Cloudflare) rather than through the LB. This lets Cloudflare proxy (orange
+# cloud) sit in front: Cloudflare terminates TLS for users, and this cert secures
+# the Cloudflare -> LB origin leg (set Cloudflare SSL mode to Full (strict)).
+
+resource "google_certificate_manager_dns_authorization" "auth" {
+  name    = "${var.name}-dnsauth"
+  project = var.project_id
+  domain  = var.domain
+}
+
+resource "google_certificate_manager_certificate" "cert" {
   name    = "${var.name}-cert"
   project = var.project_id
 
   managed {
-    domains = [var.domain]
+    domains            = [var.domain]
+    dns_authorizations = [google_certificate_manager_dns_authorization.auth.id]
   }
 }
 
+resource "google_certificate_manager_certificate_map" "map" {
+  name    = "${var.name}-certmap"
+  project = var.project_id
+}
+
+resource "google_certificate_manager_certificate_map_entry" "entry" {
+  name         = "${var.name}-certmap-entry"
+  project      = var.project_id
+  map          = google_certificate_manager_certificate_map.map.name
+  certificates = [google_certificate_manager_certificate.cert.id]
+  hostname     = var.domain
+}
+
 resource "google_compute_target_https_proxy" "https" {
-  name             = "${var.name}-https"
-  project          = var.project_id
-  url_map          = google_compute_url_map.https.id
-  ssl_certificates = [google_compute_managed_ssl_certificate.cert.id]
+  name            = "${var.name}-https"
+  project         = var.project_id
+  url_map         = google_compute_url_map.https.id
+  certificate_map = "//certificatemanager.googleapis.com/${google_certificate_manager_certificate_map.map.id}"
 }
 
 resource "google_compute_global_forwarding_rule" "https" {
