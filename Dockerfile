@@ -29,13 +29,19 @@ WORKDIR /home/app/src
 
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
-COPY src/ /home/app/src/
-COPY entrypoint.sh /home/app/entrypoint.sh
+COPY --chown=app:app src/ /home/app/src/
 # Built frontend assets; django-vite reads the manifest here (BASE_DIR.parent).
 COPY --from=frontend --chown=app:app /frontend/dist /home/app/frontend/dist
 
-EXPOSE 8000
+# Collect static at build time: Cloud Run's filesystem is ephemeral and every
+# instance is fresh, so WhiteNoise must serve a manifest baked into the image.
+# Dummy env satisfies settings import (no DB/network is touched by collectstatic).
+RUN SECRET_KEY=build-only DEBUG=False \
+    POSTGRES_DATABASE_NAME=build POSTGRES_DATABASE_USER=build \
+    POSTGRES_DATABASE_PASSWORD=build POSTGRES_DATABASE_HOST=build \
+    POSTGRES_DATABASE_PORT=5432 \
+    python manage.py collectstatic --no-input
 
-# Default command (overridable by compose for celery/beat). Runs migrations,
-# collects static, then serves gunicorn on $PORT (default 8000).
-CMD ["bash", "/home/app/entrypoint.sh"]
+# Cloud Run injects $PORT (defaults to 8080). Jobs override this command with
+# `python manage.py <migrate|run_daily_digest|release_lessons>`.
+CMD ["sh", "-c", "gunicorn cocoon.wsgi:application --bind 0.0.0.0:${PORT:-8080} --workers=3 --threads=2 --timeout=120 --log-level=info"]
