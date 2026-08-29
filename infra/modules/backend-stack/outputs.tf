@@ -1,6 +1,5 @@
 output "service_url" {
-  description = "Cloud Run service URL (map app.cocoontimor.org to this)."
-  value       = module.cloud_run.url
+  value = module.cloud_run.url
 }
 
 output "runtime_service_account" {

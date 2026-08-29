@@ -15,7 +15,10 @@ OpenTofu/Terraform for the Cocoon backend on GCP, following the
   - `cocoon-release-lessons-production` → `manage.py release_lessons`.
 - **Cloud Scheduler** — the clock. Triggers the two task Jobs (daily 15:00 Dili;
   hourly, with per-cohort `send_hour` gating delivery). No Celery, no Redis.
-- **Secret Manager** — `SECRET_KEY`, DB password, WhatsApp token/app-secret/verify-token.
+- **Secret Manager** — existing secrets from the VM deployment, referenced (not
+  managed) here: `django-secret-key-prod`, `postgres-password-prod`,
+  `whatsapp-access-token-prod`, `whatsapp-app-secret-prod`. Terraform only grants
+  the runtime SA access.
 
 ```
 Cloud Scheduler ──OAuth──▶ Cloud Run Job ──socket──▶ Cloud SQL
@@ -28,12 +31,42 @@ Browser / WhatsApp ───────▶ Cloud Run service ──────
 ```
 infra/
 ├── modules/
+│   ├── backend-stack/     # a whole environment: SAs + service + jobs + scheduler + IAM
 │   ├── cloud-run/         # web service (v2, cpu_idle, cloudsql, probes)
 │   ├── cloud-run-job/     # migrate + task jobs
-│   ├── scheduler-job/     # Cloud Scheduler -> Job trigger (+ run.invoker)
-│   └── secrets/           # Secret Manager + accessor IAM
-└── environments/production/
+│   └── scheduler-job/     # Cloud Scheduler -> Job trigger (+ run.invoker)
+└── environments/
+    └── production/        # thin caller: passes production values to backend-stack
 ```
+
+Every resource name is derived from `environment`, so environments never
+collide (even in the same project).
+
+## Adding a dev environment (later)
+
+Create `environments/dev/` with a `versions.tf` (dev state prefix + provider)
+and a `main.tf` that calls the same module with dev values:
+
+```hcl
+module "stack" {
+  source      = "../../modules/backend-stack"
+  project_id  = "decent-genius-503000-h2"   # or a dedicated dev project
+  environment = "dev"
+  artifact_repository = "cocoon-prod"
+  image_tag           = "dev"
+  cloudsql_connection_name = "…:asia-southeast1:cocoon-db-dev"
+  database_name = "cocoon_db"
+  database_user = "cocoon_db_admin"
+  gs_bucket_name = "cocoon-media-dev"
+  app_host       = "dev.cocoontimor.org"
+  whatsapp_phone_number_id = "…"            # dev WhatsApp number
+  secret_ids = { SECRET_KEY = "django-secret-key-dev", … }
+  cicd_sa_email = "cocoon-prod-cicd@…"
+  min_instances = 0
+}
+```
+
+Dev needs its own Cloud SQL instance/db, secrets, and (optionally) domain first.
 
 ## Bootstrap (one time)
 
@@ -62,19 +95,11 @@ project decent-genius-503000-h2` first.
    tofu init
    tofu apply
    ```
-   This creates the service, jobs, scheduler, service accounts, and secret
-   *resources*.
+   This creates the service, jobs, scheduler, and service accounts, and grants
+   the runtime SA access to the existing secrets. Secret *values* already exist
+   in Secret Manager (from the VM deployment) — nothing to populate.
 
-5. **Set secret values** (never stored in TF state):
-   ```bash
-   for s in secret-key postgres-database-password whatsapp-access-token \
-            whatsapp-app-secret whatsapp-webhook-verify-token; do
-     printf '%s' "REPLACE" | gcloud secrets versions add "cocoon-$s-production" \
-       --project=decent-genius-503000-h2 --data-file=-
-   done
-   ```
-
-6. **Migrate + smoke test:**
+5. **Migrate + smoke test:**
    ```bash
    gcloud run jobs execute cocoon-migrate-production --region=asia-southeast1 --wait
    curl -sS "$(tofu output -raw service_url)/health/"

@@ -15,6 +15,6 @@ terraform {
 }
 
 provider "google" {
-  project = var.project_id
-  region  = var.region
+  project = "decent-genius-503000-h2"
+  region  = "asia-southeast1"
 }
