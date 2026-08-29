@@ -100,6 +100,7 @@ module "cloud_run" {
 
   image           = local.image
   service_account = google_service_account.runtime.email
+  ingress         = var.ingress
 
   cpu           = var.cpu
   memory        = var.memory
