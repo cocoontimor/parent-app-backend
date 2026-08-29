@@ -37,6 +37,26 @@ class Announcement(BaseModel):
         return parents
 
 
+def announcement_photo_upload_path(instance, filename):
+    return f"announcements/{instance.announcement_id}/photos/{filename}"
+
+
+class AnnouncementPhoto(BaseModel):
+    announcement = models.ForeignKey(
+        Announcement,
+        on_delete=models.CASCADE,
+        related_name="photos",
+    )
+    image = models.ImageField(upload_to=announcement_photo_upload_path)
+
+    class Meta:
+        db_table = "announcement_photos"
+        ordering = ["created"]
+
+    def __str__(self):
+        return f"Photo for {self.announcement_id}"
+
+
 class AnnouncementAck(BaseModel):
     announcement = models.ForeignKey(
         Announcement,

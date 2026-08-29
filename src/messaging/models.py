@@ -9,6 +9,7 @@ class MessageLog(BaseModel):
         PENDING = "pending", "Pending"
         SENT = "sent", "Sent"
         DELIVERED = "delivered", "Delivered"
+        READ = "read", "Read"
         FAILED = "failed", "Failed"
 
     recipient = models.ForeignKey(
@@ -23,7 +24,12 @@ class MessageLog(BaseModel):
         choices=Status.choices,
         default=Status.PENDING,
     )
+    # WhatsApp's own message id, returned on send. Lets delivery/read receipts
+    # target this exact message instead of every message to the same phone.
+    wa_message_id = models.CharField(max_length=128, blank=True, db_index=True)
     sent_at = models.DateTimeField(null=True, blank=True)
+    # Set when the recipient taps the message's acknowledge quick-reply button.
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
     error = models.TextField(blank=True)
 
     class Meta:
@@ -32,6 +38,30 @@ class MessageLog(BaseModel):
 
     def __str__(self):
         return f"Message to {self.recipient} [{self.status}]"
+
+
+class InboundMessage(BaseModel):
+    """A message received from a parent via the WhatsApp webhook."""
+
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="inbound_messages",
+    )
+    from_phone = models.CharField(max_length=20)
+    wa_message_id = models.CharField(max_length=128, unique=True)
+    message_type = models.CharField(max_length=20, blank=True)
+    text = models.TextField(blank=True)
+    payload = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "inbound_messages"
+        ordering = ["-created"]
+
+    def __str__(self):
+        return f"Inbound {self.message_type} from {self.from_phone}"
 
 
 class DigestQueue(BaseModel):

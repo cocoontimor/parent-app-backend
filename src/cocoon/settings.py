@@ -8,7 +8,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 env = environ.Env(
     DEBUG=(bool, False),
     ALLOWED_HOSTS=(list, ["localhost", "127.0.0.1"]),
-    ALLOWED_ORIGINS=(list, ["http://localhost:3000"]),
 )
 environ.Env.read_env(os.path.join(BASE_DIR.parent, ".env"))
 
@@ -32,12 +31,12 @@ DJANGO_APPS = [
 EXTERNAL_APPS = [
     "allauth",
     "allauth.account",
-    "corsheaders",
     "django_extensions",
-    "django_filters",
-    "drf_spectacular",
-    "rest_framework",
+    "rest_framework",  # kept: serializers shape Inertia props
     "rest_framework.authtoken",
+    "inertia",
+    "django_vite",
+    "django_celery_beat",
 ]
 
 INTERNAL_APPS = [
@@ -47,6 +46,9 @@ INTERNAL_APPS = [
     "announcements",
     "updates",
     "messaging",
+    "elearning",
+    "payments",
+    "web",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + INTERNAL_APPS + EXTERNAL_APPS
@@ -59,13 +61,14 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
+    "inertia.middleware.InertiaMiddleware",
+    "web.middleware.inertia_share",  # shares auth.user with every Inertia page
 ]
 
 ROOT_URLCONF = "cocoon.urls"
@@ -73,7 +76,7 @@ ROOT_URLCONF = "cocoon.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -131,34 +134,15 @@ ACCOUNT_EMAIL_REQUIRED = False
 ACCOUNT_UNIQUE_EMAIL = True
 ACCOUNT_EMAIL_VERIFICATION = "none"
 
+LOGIN_URL = "/login/"
+LOGIN_REDIRECT_URL = "/"
+
 # ---------------------------------------------------------------------------
 # REST Framework
 # ---------------------------------------------------------------------------
-REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework.authentication.SessionAuthentication",
-        "rest_framework.authentication.TokenAuthentication",
-    ),
-    "DEFAULT_PERMISSION_CLASSES": (
-        "rest_framework.permissions.IsAuthenticated",
-    ),
-    "DEFAULT_FILTER_BACKENDS": (
-        "django_filters.rest_framework.DjangoFilterBackend",
-    ),
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-}
-
-SPECTACULAR_SETTINGS = {
-    "TITLE": "Cocoon API",
-    "DESCRIPTION": "",
-    "VERSION": "1.0.0",
-    "SERVE_INCLUDE_SCHEMA": False,
-}
-
-# ---------------------------------------------------------------------------
-# CORS
-# ---------------------------------------------------------------------------
-CORS_ALLOWED_ORIGINS = env("ALLOWED_ORIGINS")
+# The REST API and its OpenAPI schema were retired when the admin UI moved to
+# Inertia (Svelte) served directly by Django. `rest_framework` stays installed
+# only because the serializers are reused to shape Inertia page props.
 
 # ---------------------------------------------------------------------------
 # Cache (Redis)
@@ -184,14 +168,10 @@ CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", default=f"redis://{REDIS_HO
 CELERY_TIMEZONE = "UTC"
 CELERY_TASK_IGNORE_RESULT = True
 
-from celery.schedules import crontab
-
-CELERY_BEAT_SCHEDULE = {
-    "send-daily-digest": {
-        "task": "messaging.tasks.send_daily_digest",
-        "schedule": crontab(hour=15, minute=0),
-    },
-}
+# Schedules live in the database (django-celery-beat), editable via the Django
+# admin without a redeploy. The two default tasks are seeded by a data migration
+# (messaging/migrations/0004); each schedule carries its own timezone.
+CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 
 # ---------------------------------------------------------------------------
 # WhatsApp Cloud API
@@ -199,6 +179,12 @@ CELERY_BEAT_SCHEDULE = {
 WHATSAPP_PHONE_NUMBER_ID = env("WHATSAPP_PHONE_NUMBER_ID", default="")
 WHATSAPP_ACCESS_TOKEN = env("WHATSAPP_ACCESS_TOKEN", default="")
 WHATSAPP_WEBHOOK_VERIFY_TOKEN = env("WHATSAPP_WEBHOOK_VERIFY_TOKEN", default="cocoon-webhook-verify")
+# Meta App Secret — used to verify the X-Hub-Signature-256 on inbound webhooks.
+# When unset, signature verification is skipped (dev-friendly fail-open).
+WHATSAPP_APP_SECRET = env("WHATSAPP_APP_SECRET", default="")
+
+# Absolute base URL used to build magic links sent over WhatsApp.
+APP_BASE_URL = env("APP_BASE_URL", default="http://localhost:8000")
 
 # ---------------------------------------------------------------------------
 # Email (console in dev)
@@ -215,12 +201,61 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "static")
+# Vite build output; django-vite reads the manifest here in prod.
+# frontend/ is a sibling of src/ (BASE_DIR), so use BASE_DIR.parent.
+STATICFILES_DIRS = [BASE_DIR.parent / "frontend" / "dist"]
 
 MEDIA_URL = "media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
+# ---------------------------------------------------------------------------
+# Inertia + django-vite (Svelte frontend served by Django)
+# ---------------------------------------------------------------------------
+INERTIA_LAYOUT = "base.html"
+
+# Dev: Vite serves assets from its own server (port 5173) with HMR.
+# Prod: assets are read from the built manifest under frontend/dist.
+DJANGO_VITE = {
+    "default": {
+        "dev_mode": DEBUG,
+        "dev_server_port": 5173,
+        "manifest_path": BASE_DIR.parent / "frontend" / "dist" / ".vite" / "manifest.json",
+    }
+}
+
+# CSRF: Inertia (axios) sends the token in this header; align Django to read it.
+CSRF_HEADER_NAME = "HTTP_X_XSRF_TOKEN"
+CSRF_COOKIE_NAME = "XSRF-TOKEN"
+
+# ---------------------------------------------------------------------------
+# Storage
+# ---------------------------------------------------------------------------
+# If GS_BUCKET_NAME is set, media files go to Google Cloud Storage via
+# django-storages. Auth uses Application Default Credentials:
+#   - On GCE: picked up from the VM's metadata server (attached SA).
+#   - Locally: `gcloud auth application-default login`, or a key file
+#     referenced by GOOGLE_APPLICATION_CREDENTIALS.
+# When GS_BUCKET_NAME is empty, we fall back to the local filesystem so dev
+# / tests keep working without touching GCP.
+GS_BUCKET_NAME = env("GS_BUCKET_NAME", default="")
+
+if GS_BUCKET_NAME:
+    default_storage = {
+        "BACKEND": "storages.backends.gcloud.GoogleCloudStorage",
+        "OPTIONS": {
+            "bucket_name": GS_BUCKET_NAME,
+            "project_id": env("GS_PROJECT_ID", default=""),
+            "location": env("GS_LOCATION", default="media"),
+            "default_acl": None,          # bucket uses uniform IAM
+            "querystring_auth": False,    # bucket is public-read
+            "file_overwrite": False,
+        },
+    }
+else:
+    default_storage = {"BACKEND": "django.core.files.storage.FileSystemStorage"}
+
 STORAGES = {
-    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "default": default_storage,
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
 }
 
