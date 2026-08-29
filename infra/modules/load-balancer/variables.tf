@@ -26,3 +26,8 @@ variable "security_policy" {
   type        = string
   default     = null
 }
+
+variable "ssl_certificate" {
+  description = "Self-link of the Cloudflare Origin SSL cert (created out-of-band via gcloud)."
+  type        = string
+}

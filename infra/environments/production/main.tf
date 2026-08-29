@@ -59,6 +59,11 @@ module "load_balancer" {
   domain            = "app.cocoontimor.org"
   cloud_run_service = module.stack.service_name
   security_policy   = module.cloud_armor.policy_id
+
+  # Cloudflare Origin cert, created out-of-band from ~/cocoon/origin.{pem,key}:
+  #   gcloud compute ssl-certificates create cocoon-backend-production-origin \
+  #     --certificate=origin.pem --private-key=origin.key --global
+  ssl_certificate = "https://www.googleapis.com/compute/v1/projects/decent-genius-503000-h2/global/sslCertificates/cocoon-backend-production-origin"
 }
 
 output "service_url" {
@@ -80,9 +85,4 @@ output "migrate_job" {
 output "load_balancer_ip" {
   description = "Point app.cocoontimor.org A record here (Cloudflare, proxied/orange)."
   value       = module.load_balancer.ip_address
-}
-
-output "cert_dns_auth_record" {
-  description = "Add this CNAME in Cloudflare (DNS-only) to validate the managed cert."
-  value       = module.load_balancer.dns_auth_record
 }
