@@ -21,6 +21,16 @@
       <div><span style="color: var(--muted);">Created:</span> {fmtDateTime(announcement.created)}</div>
     </div>
     <p style="margin-top: 1rem; white-space: pre-wrap;">{announcement.body}</p>
+
+    {#if announcement.photos?.length}
+      <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem;">
+        {#each announcement.photos as p}
+          <a href={p.image} target="_blank" rel="noopener">
+            <img src={p.image} alt="" style="height: 120px; border-radius: 6px; object-fit: cover;" />
+          </a>
+        {/each}
+      </div>
+    {/if}
   </div>
 
   <div class="card">

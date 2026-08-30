@@ -15,13 +15,14 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import Group
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.db.models import Count, Q
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_POST
 from inertia import inertia, render
 
 from announcements.models import Announcement
-from announcements.serializers import AnnouncementAckSerializer, AnnouncementSerializer
+from announcements.serializers import AnnouncementSerializer
 from children.models import Child, Circle, Member
 from children.serializers import ChildSerializer, CircleSerializer
 from elearning.models import Cohort, Course, Lesson, LessonCompletion, Module
@@ -360,6 +361,11 @@ def announcements_create(request):
     )
     announcement.circles.set(_list(data, "circles"))
 
+    from photos.models import Photo
+
+    for image in request.FILES.getlist("photos"):
+        Photo.objects.create(owner=announcement, image=image)
+
     from messaging.services import queue_announcement_for_digest
 
     queue_announcement_for_digest(announcement)
@@ -369,11 +375,28 @@ def announcements_create(request):
 @login_required
 @inertia("Announcements/Show")
 def announcements_show(request, pk):
+    from messaging.models import DigestQueue
+
     announcement = get_object_or_404(_announcements_qs(request.user), pk=pk)
-    acks = announcement.acks.select_related("parent").all()
+    # A parent acknowledged this announcement if the digest that delivered it
+    # was acked; that ack timestamp lives on the linked MessageLog.
+    acked = DigestQueue.objects.filter(
+        item_type=DigestQueue.ItemType.ANNOUNCEMENT,
+        item_id=announcement.id,
+        message_log__acknowledged_at__isnull=False,
+    ).select_related("recipient", "message_log")
+    acks = [
+        {
+            "id": item.id,
+            "parent": item.recipient_id,
+            "parent_name": item.recipient.display_name,
+            "created": item.message_log.acknowledged_at,
+        }
+        for item in acked
+    ]
     return {
         "announcement": AnnouncementSerializer(announcement).data,
-        "acks": AnnouncementAckSerializer(acks, many=True).data,
+        "acks": acks,
     }
 
 
@@ -391,6 +414,11 @@ def updates_create(request):
         text=data.get("text", ""),
         created_by=request.user,
     )
+
+    from photos.models import Photo
+
+    for image in request.FILES.getlist("photos"):
+        Photo.objects.create(owner=update, image=image)
 
     from messaging.services import queue_update_for_digest
 
@@ -419,7 +447,14 @@ def urgent_alerts_index(request):
     denied = _deny_non_staff(request)
     if denied:
         return denied
-    alerts = UrgentAlert.objects.select_related("created_by").all()
+    alerts = UrgentAlert.objects.select_related("created_by").annotate(
+        recipient_count=Count("message_logs", distinct=True),
+        ack_count=Count(
+            "message_logs",
+            filter=Q(message_logs__acknowledged_at__isnull=False),
+            distinct=True,
+        ),
+    )
     return {
         "alerts": UrgentAlertSerializer(alerts, many=True).data,
     }

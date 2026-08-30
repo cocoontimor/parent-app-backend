@@ -58,6 +58,16 @@ resource "google_storage_bucket_iam_member" "runtime_media" {
   member = local.runtime_sa_member
 }
 
+# Media is served via signed URLs (querystring_auth). The runtime SA signs with
+# the IAM signBlob API because its metadata-server credentials have no private
+# key; that requires the SA to be able to create tokens for itself.
+resource "google_service_account_iam_member" "runtime_sign_blob" {
+  count              = var.gs_bucket_name != "" ? 1 : 0
+  service_account_id = google_service_account.runtime.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = local.runtime_sa_member
+}
+
 # Grant the runtime SA read access to each existing secret.
 resource "google_secret_manager_secret_iam_member" "runtime_accessors" {
   for_each = var.secret_ids

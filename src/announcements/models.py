@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.contrib.contenttypes.fields import GenericRelation
 from django.db import models
 
 from utils.models import BaseModel
@@ -16,6 +17,12 @@ class Announcement(BaseModel):
         "children.Circle",
         related_name="announcements",
         blank=True,
+    )
+    photos = GenericRelation(
+        "photos.Photo",
+        content_type_field="owner_type",
+        object_id_field="owner_id",
+        related_query_name="announcement",
     )
 
     class Meta:
@@ -35,43 +42,3 @@ class Announcement(BaseModel):
                 circles__in=self.circles.all(),
             ).distinct()
         return parents
-
-
-def announcement_photo_upload_path(instance, filename):
-    return f"announcements/{instance.announcement_id}/photos/{filename}"
-
-
-class AnnouncementPhoto(BaseModel):
-    announcement = models.ForeignKey(
-        Announcement,
-        on_delete=models.CASCADE,
-        related_name="photos",
-    )
-    image = models.ImageField(upload_to=announcement_photo_upload_path)
-
-    class Meta:
-        db_table = "announcement_photos"
-        ordering = ["created"]
-
-    def __str__(self):
-        return f"Photo for {self.announcement_id}"
-
-
-class AnnouncementAck(BaseModel):
-    announcement = models.ForeignKey(
-        Announcement,
-        on_delete=models.CASCADE,
-        related_name="acks",
-    )
-    parent = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="announcement_acks",
-    )
-
-    class Meta:
-        db_table = "announcement_acks"
-        unique_together = [("announcement", "parent")]
-
-    def __str__(self):
-        return f"{self.parent} ack {self.announcement}"

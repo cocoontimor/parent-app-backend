@@ -9,7 +9,7 @@
   const form = useForm({ title: '', body: '' })
 
   function submit() {
-    if (!confirm('This will immediately notify ALL parents. Are you sure?')) return
+    if (!confirm('This will immediately notify all parents of non-graduated children. Are you sure?')) return
     $form.post('/urgent-alerts/create/', {
       onSuccess: () => {
         open = false
@@ -30,17 +30,18 @@
   <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>Title</th><th>By</th><th>Created</th></tr>
+        <tr><th>Title</th><th>By</th><th>Acknowledged</th><th>Created</th></tr>
       </thead>
       <tbody>
         {#each alerts as a}
           <tr>
             <td>{a.title}</td>
             <td>{a.created_by_name}</td>
+            <td>{a.ack_count} / {a.recipient_count}</td>
             <td>{fmtDateTime(a.created)}</td>
           </tr>
         {:else}
-          <tr><td colspan="3" class="empty">No urgent alerts yet.</td></tr>
+          <tr><td colspan="4" class="empty">No urgent alerts yet.</td></tr>
         {/each}
       </tbody>
     </table>

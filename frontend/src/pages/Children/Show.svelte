@@ -1,5 +1,5 @@
 <script>
-  import { useForm, inertia, page } from '@inertiajs/svelte'
+  import { router, inertia, page } from '@inertiajs/svelte'
   import Layout from '../../lib/Layout.svelte'
   import Modal from '../../lib/Modal.svelte'
 
@@ -10,13 +10,28 @@
   $: isStaff = $page.props.auth?.user?.is_staff_group
 
   let open = false
-  const form = useForm({ child: child.id, text: '' })
+  let text = ''
+  let files = []
+  let fileInput
+  let processing = false
 
   function submit() {
-    $form.post('/updates/create/', {
+    const data = new FormData()
+    data.append('child', child.id)
+    data.append('text', text)
+    for (const f of files) data.append('photos', f)
+
+    processing = true
+    router.post('/updates/create/', data, {
+      forceFormData: true,
       onSuccess: () => {
         open = false
-        $form.reset('text')
+        text = ''
+        files = []
+        if (fileInput) fileInput.value = ''
+      },
+      onFinish: () => {
+        processing = false
       },
     })
   }
@@ -74,7 +89,18 @@
         <tbody>
           {#each updates as u}
             <tr>
-              <td>{u.text}</td>
+              <td>
+                {u.text}
+                {#if u.photos?.length}
+                  <div style="display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.4rem;">
+                    {#each u.photos as p}
+                      <a href={p.image} target="_blank" rel="noopener">
+                        <img src={p.image} alt="" style="height: 56px; border-radius: 4px; object-fit: cover;" />
+                      </a>
+                    {/each}
+                  </div>
+                {/if}
+              </td>
               <td>{u.created_by_name}</td>
               <td>{fmtDateTime(u.created)}</td>
             </tr>
@@ -89,11 +115,21 @@
   <Modal title="New Update for {child.name}" {open} onClose={() => (open = false)}>
     <form on:submit|preventDefault={submit}>
       <label for="text">Update Text</label>
-      <textarea id="text" rows="4" bind:value={$form.text} required></textarea>
+      <textarea id="text" rows="4" bind:value={text} required></textarea>
+
+      <label for="photos">Photos</label>
+      <input
+        id="photos"
+        type="file"
+        accept="image/*"
+        multiple
+        bind:this={fileInput}
+        on:change={(e) => (files = [...e.target.files])}
+      />
 
       <div class="modal-actions">
         <button type="button" class="ghost" on:click={() => (open = false)}>Cancel</button>
-        <button type="submit" disabled={$form.processing}>Create</button>
+        <button type="submit" disabled={processing}>Create</button>
       </div>
     </form>
   </Modal>

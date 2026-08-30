@@ -45,20 +45,26 @@ def send_daily_digest():
                     pass
 
         body = "\n".join(lines)
-        send_whatsapp_message(
+        log = send_whatsapp_message(
             user, template="daily_digest", body=body, variables=[body], acknowledge=True
         )
 
         DigestQueue.objects.filter(
             id__in=[item.id for item in items]
-        ).update(processed=True)
+        ).update(processed=True, message_log=log)
 
     logger.info("Daily digest sent to %d parents", len(recipients))
 
 
 @shared_task
 def send_urgent_alert(alert_id):
-    """Immediate send for urgent alerts. Bypasses digest. Sends to ALL parents."""
+    """Immediate send for urgent alerts. Bypasses digest.
+
+    Sends only to parents with at least one non-graduated child (via their
+    family circle), so parents whose children have all graduated are skipped.
+    Each message is linked to the alert (MessageLog.source) and carries an
+    acknowledge button, so taps are reportable per alert.
+    """
     from django.contrib.auth import get_user_model
 
     from updates.models import UrgentAlert
@@ -72,12 +78,17 @@ def send_urgent_alert(alert_id):
         logger.error("UrgentAlert %s not found", alert_id)
         return
 
-    parents = User.objects.filter(groups__name="parent")
+    parents = User.objects.filter(
+        groups__name="parent",
+        circles__type="family",
+        circles__children__graduated=False,
+    ).distinct()
     body = f"URGENT: {alert.title}\n\n{alert.body}"
 
     for parent in parents:
         send_whatsapp_message(
-            parent, template="urgent_alert", body=body, variables=[body], acknowledge=True
+            parent, template="urgent_alert", body=body, variables=[body],
+            acknowledge=True, source=alert,
         )
 
     logger.info("Urgent alert %s sent to %d parents", alert_id, parents.count())

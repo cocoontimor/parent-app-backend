@@ -103,3 +103,67 @@ class AppLinkReplyTests(TestCase):
     def test_unknown_number_ignored(self, send):
         _maybe_send_app_link("6500000000", "menu")
         self.assertFalse(send.called)
+
+
+class UrgentAlertSendTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth.models import Group
+
+        self.parent_group, _ = Group.objects.get_or_create(name="parent")
+        self.staff = User.objects.create_user(username="admin", is_staff=True)
+
+    def _make_parent(self, phone, *, graduated):
+        from children.models import Child, Circle, Member
+
+        parent = User.objects.create_user(username=phone)
+        parent.groups.add(self.parent_group)
+        child = Child.objects.create(name=f"child-{phone}", graduated=graduated)
+        circle = Circle.objects.create(name=f"fam-{phone}", type=Circle.Type.FAMILY)
+        circle.children.add(child)
+        Member.objects.create(
+            user=parent, circle=circle, relationship=Member.Relationship.MOTHER
+        )
+        return parent
+
+    def test_skips_parents_of_only_graduated_children(self):
+        from messaging.models import MessageLog
+        from messaging.tasks import send_urgent_alert
+        from updates.models import UrgentAlert
+
+        self._make_parent("6591111111", graduated=False)
+        self._make_parent("6592222222", graduated=True)  # graduated -> skipped
+        alert = UrgentAlert.objects.create(title="T", body="B", created_by=self.staff)
+
+        send_urgent_alert(alert.id)
+
+        recipients = set(MessageLog.objects.values_list("recipient__username", flat=True))
+        self.assertEqual(recipients, {"6591111111"})
+
+    def test_ack_reporting_per_alert(self):
+        from django.db.models import Count, Q
+
+        from messaging.models import MessageLog
+        from messaging.services import ACK_PAYLOAD_PREFIX, record_acknowledgment
+        from messaging.tasks import send_urgent_alert
+        from updates.models import UrgentAlert
+
+        parent = self._make_parent("6591111111", graduated=False)
+        alert = UrgentAlert.objects.create(title="T", body="B", created_by=self.staff)
+        send_urgent_alert(alert.id)
+
+        log = MessageLog.objects.get(recipient=parent)
+        self.assertEqual(log.source, alert)  # linked via the generic source FK
+
+        # Simulate the parent tapping the acknowledge quick-reply button.
+        record_acknowledgment("6591111111", f"{ACK_PAYLOAD_PREFIX}{log.id}")
+
+        annotated = UrgentAlert.objects.annotate(
+            recipient_count=Count("message_logs", distinct=True),
+            ack_count=Count(
+                "message_logs",
+                filter=Q(message_logs__acknowledged_at__isnull=False),
+                distinct=True,
+            ),
+        ).get(id=alert.id)
+        self.assertEqual(annotated.recipient_count, 1)
+        self.assertEqual(annotated.ack_count, 1)

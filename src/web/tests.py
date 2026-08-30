@@ -1,10 +1,12 @@
 """Tests for the WhatsApp view-only (parent) access flow."""
+import tempfile
 from decimal import Decimal
 from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
-from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
 
 from children.models import Child, Circle, Member
 from payments.models import FeePayment
@@ -94,3 +96,27 @@ class StaffAccessTests(TestCase):
         for path in ("/messages/", "/urgent-alerts/", "/elearning/"):
             resp = self.client.get(path)
             self.assertEqual(resp.status_code, 200, f"staff blocked from {path}")
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class UpdatePhotoUploadTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user(username="staff2", password="x")
+        self.staff.groups.add(Group.objects.get_or_create(name="staff")[0])
+        self.client.force_login(self.staff)
+        self.child = Child.objects.create(name="Ada")
+
+    def test_upload_creates_linked_photos(self):
+        from updates.models import Update
+
+        img = SimpleUploadedFile("a.jpg", b"\xff\xd8\xff\xe0fake", content_type="image/jpeg")
+        resp = self.client.post(
+            "/updates/create/",
+            {"child": self.child.id, "text": "first day", "photos": img},
+        )
+        self.assertEqual(resp.status_code, 302)
+
+        update = Update.objects.get(child=self.child)
+        self.assertEqual(update.photos.count(), 1)
+        # The generic owner FK resolves back to the update.
+        self.assertEqual(update.photos.first().owner, update)

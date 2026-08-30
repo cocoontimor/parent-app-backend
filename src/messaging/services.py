@@ -65,7 +65,8 @@ def send_text_message(recipient_phone, text):
 
 
 def send_whatsapp_message(
-    recipient_user, template, body, variables=None, button_payload=None, acknowledge=False
+    recipient_user, template, body, variables=None, button_payload=None,
+    acknowledge=False, source=None,
 ):
     """
     Send a WhatsApp template message via the Cloud API.
@@ -84,6 +85,9 @@ def send_whatsapp_message(
     tap is attributed back to this exact MessageLog (see ``record_acknowledgment``).
     Ignored when an explicit ``button_payload`` is supplied.
 
+    ``source`` optionally links the log to the object this message was sent for
+    (e.g. an UrgentAlert), so acknowledgments can be reported per source.
+
     Falls back to logging if credentials are not configured.
     """
     from .models import MessageLog
@@ -98,6 +102,7 @@ def send_whatsapp_message(
         template=template,
         body=body,
         status=MessageLog.Status.PENDING,
+        source=source,
     )
 
     if not phone_number_id or not access_token:
