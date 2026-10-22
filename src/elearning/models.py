@@ -2,7 +2,7 @@ from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
-from utils.models import BaseModel
+from utils.models import BaseModel, SoftDeleteModel
 
 
 class Course(BaseModel):
@@ -23,13 +23,31 @@ class Course(BaseModel):
         return self.title
 
     def ordered_lessons(self):
-        """All lessons in delivery order: by module order, then lesson order."""
-        return Lesson.objects.filter(module__course=self).order_by(
-            "module__order", "order"
-        )
+        """All lessons in delivery order: by module order, then lesson order.
+
+        Excludes soft-deleted lessons (via the default manager) and lessons
+        under a soft-deleted module.
+        """
+        return Lesson.objects.filter(
+            module__course=self, module__deleted__isnull=True
+        ).order_by("module__order", "order")
+
+    def lessons_with_release_day(self):
+        """Each lesson in delivery order paired with its cumulative release day.
+
+        ``release_offset_days`` is the gap *after the previous lesson*, so the
+        release day is the running sum of offsets across modules and lessons in
+        delivery order (the first lesson is offset from the run's start date).
+        """
+        day = 0
+        result = []
+        for lesson in self.ordered_lessons():
+            day += lesson.release_offset_days
+            result.append((lesson, day))
+        return result
 
 
-class Module(BaseModel):
+class Module(BaseModel, SoftDeleteModel):
     """An ordered section within a Course (e.g. "Week 1: Foundations")."""
 
     course = models.ForeignKey(
@@ -48,7 +66,7 @@ class Module(BaseModel):
         return f"{self.course.title} / {self.title}"
 
 
-class Lesson(BaseModel):
+class Lesson(BaseModel, SoftDeleteModel):
     """A single learning unit: one YouTube video within a Module."""
 
     module = models.ForeignKey(
@@ -62,7 +80,11 @@ class Lesson(BaseModel):
     order = models.PositiveIntegerField(default=0)
     release_offset_days = models.PositiveIntegerField(
         default=0,
-        help_text="Days after a cohort's start date that this lesson unlocks.",
+        help_text=(
+            "Days after the previous lesson that this one unlocks (cumulative). "
+            "The first lesson is counted from the cohort's start date; 0 means "
+            "it releases together with the previous lesson."
+        ),
     )
 
     class Meta:
@@ -74,23 +96,49 @@ class Lesson(BaseModel):
 
 
 class Cohort(BaseModel):
-    """A group receiving a course's lessons on a periodic (drip) schedule.
+    """A named, reusable group of trainees.
 
-    Membership is reused from an existing Circle: the cohort's recipients are
-    that circle's members. Lessons are released one per ``cadence_days`` from
-    ``start_date``, in the course's module/lesson order.
+    A cohort is just its people: ``members`` are the trainee users who receive
+    lessons. Courses are run *for* a cohort via ``CourseRun`` records, so the
+    same cohort can run one course now and another later without losing history.
     """
 
     name = models.CharField(max_length=255)
+    members = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name="cohorts",
+        blank=True,
+    )
+
+    class Meta:
+        db_table = "elearning_cohorts"
+        ordering = ["-created"]
+
+    def __str__(self):
+        return self.name
+
+    def recipients(self):
+        return self.members.all()
+
+
+class CourseRun(BaseModel):
+    """A record of a cohort running a course from a start date (drip schedule).
+
+    Owns the drip state: which course, when it started, the delivery hour, and
+    (via ``releases``) which lessons have gone out. Changing the course or start
+    date means opening a new run and leaving the old one as a record, so lesson
+    releases and completions stay pinned to the run they happened in.
+    """
+
+    cohort = models.ForeignKey(
+        Cohort,
+        on_delete=models.CASCADE,
+        related_name="runs",
+    )
     course = models.ForeignKey(
         Course,
         on_delete=models.CASCADE,
-        related_name="cohorts",
-    )
-    circle = models.ForeignKey(
-        "children.Circle",
-        on_delete=models.CASCADE,
-        related_name="cohorts",
+        related_name="runs",
     )
     start_date = models.DateField()
     send_hour = models.PositiveSmallIntegerField(
@@ -101,34 +149,40 @@ class Cohort(BaseModel):
     active = models.BooleanField(default=True)
 
     class Meta:
-        db_table = "elearning_cohorts"
+        db_table = "elearning_course_runs"
         ordering = ["-created"]
 
     def __str__(self):
-        return f"{self.name} ({self.course.title})"
+        return f"{self.cohort.name} -> {self.course.title}"
 
     def recipients(self):
-        return self.circle.members.all()
+        return self.cohort.recipients()
 
     def due_lessons(self, today):
-        """Lessons whose release offset has been reached by ``today``.
+        """Lessons whose cumulative release day has been reached by ``today``.
 
-        Pacing lives on each lesson (``release_offset_days``, counted from this
-        cohort's ``start_date``). Returns them in delivery order.
+        Pacing is cumulative: each lesson's ``release_offset_days`` counts from
+        the previous lesson, so its release day is the running sum in delivery
+        order (see ``Course.lessons_with_release_day``). Returns them in
+        delivery order.
         """
         if today < self.start_date:
-            return self.course.ordered_lessons().none()
+            return []
         elapsed = (today - self.start_date).days
-        return self.course.ordered_lessons().filter(
-            release_offset_days__lte=elapsed
-        )
+        due = []
+        for lesson, day in self.course.lessons_with_release_day():
+            if day > elapsed:
+                # Cumulative days are non-decreasing, so nothing later is due.
+                break
+            due.append(lesson)
+        return due
 
 
 class LessonRelease(BaseModel):
-    """Records that a cohort has been released a lesson (drip progress)."""
+    """Records that a course run has released a lesson (drip progress)."""
 
-    cohort = models.ForeignKey(
-        Cohort,
+    run = models.ForeignKey(
+        CourseRun,
         on_delete=models.CASCADE,
         related_name="releases",
     )
@@ -142,10 +196,10 @@ class LessonRelease(BaseModel):
     class Meta:
         db_table = "elearning_lesson_releases"
         ordering = ["released_at"]
-        unique_together = [("cohort", "lesson")]
+        unique_together = [("run", "lesson")]
 
     def __str__(self):
-        return f"{self.cohort.name} -> {self.lesson.title}"
+        return f"{self.run.cohort.name} -> {self.lesson.title}"
 
 
 class LessonCompletion(BaseModel):

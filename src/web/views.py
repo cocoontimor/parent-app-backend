@@ -15,9 +15,11 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import Group
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Count, Max, Q
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_POST
 from inertia import inertia, render
 
@@ -25,11 +27,18 @@ from announcements.models import Announcement
 from announcements.serializers import AnnouncementSerializer
 from children.models import Child, Circle, Member
 from children.serializers import ChildSerializer, CircleSerializer
-from elearning.models import Cohort, Course, Lesson, LessonCompletion, Module
+from elearning.models import (
+    Cohort,
+    Course,
+    CourseRun,
+    Lesson,
+    LessonCompletion,
+    Module,
+)
 from elearning.serializers import (
     CohortSerializer,
+    CourseRunSerializer,
     CourseSerializer,
-    LessonReleaseSerializer,
 )
 from messaging.models import MessageLog
 from messaging.serializers import MessageLogSerializer
@@ -71,6 +80,14 @@ def _data(request):
         except json.JSONDecodeError:
             return {}
     return request.POST
+
+
+def _parse_date(value):
+    """A YYYY-MM-DD string as a date, or None if missing or not a real date."""
+    try:
+        return parse_date(value or "")
+    except ValueError:
+        return None
 
 
 def _list(data, key):
@@ -483,19 +500,41 @@ def urgent_alerts_create(request):
 # E-Learning (Courses / Modules / Lessons / Cohorts)
 # ---------------------------------------------------------------------------
 @login_required
-@inertia("ELearning/Index")
 def elearning_index(request):
+    # E-learning is admin-only; bounce non-staff before the courses redirect.
+    denied = _deny_non_staff(request)
+    if denied:
+        return denied
+    return HttpResponseRedirect("/elearning/courses/")
+
+
+@login_required
+@inertia("ELearning/Courses")
+def courses_index(request):
     denied = _deny_non_staff(request)
     if denied:
         return denied
     courses = Course.objects.prefetch_related("modules__lessons").all()
-    cohorts = Cohort.objects.select_related("course", "circle").all()
     return {
         "courses": CourseSerializer(courses, many=True).data,
+    }
+
+
+@login_required
+@inertia("ELearning/Cohorts")
+def cohorts_index(request):
+    denied = _deny_non_staff(request)
+    if denied:
+        return denied
+    cohorts = Cohort.objects.prefetch_related("runs__course", "members").all()
+    trainees = (
+        User.objects.filter(groups__name="trainee")
+        .prefetch_related("groups", "cohorts")
+        .order_by("username")
+    )
+    return {
         "cohorts": CohortSerializer(cohorts, many=True).data,
-        "circles": CircleSerializer(
-            Circle.objects.filter(graduated=False), many=True
-        ).data,
+        "trainees": UserSerializer(trainees, many=True).data,
     }
 
 
@@ -508,7 +547,7 @@ def courses_create(request):
         title=data.get("title", ""),
         description=data.get("description", ""),
     )
-    return HttpResponseRedirect("/elearning/")
+    return HttpResponseRedirect("/elearning/courses/")
 
 
 @login_required
@@ -520,23 +559,28 @@ def courses_show(request, pk):
     course = get_object_or_404(
         Course.objects.prefetch_related("modules__lessons"), pk=pk
     )
-    cohorts = course.cohorts.select_related("circle").prefetch_related(
-        "releases__lesson"
-    )
-    cohort_data = []
-    for cohort in cohorts:
-        row = CohortSerializer(cohort).data
-        row["releases"] = LessonReleaseSerializer(
-            cohort.releases.all(), many=True
-        ).data
-        cohort_data.append(row)
     return {
         "course": CourseSerializer(course).data,
-        "cohorts": cohort_data,
-        "circles": CircleSerializer(
-            Circle.objects.filter(graduated=False), many=True
-        ).data,
     }
+
+
+@require_POST
+@login_required
+def courses_update(request, pk):
+    _require_staff(request)
+    course = get_object_or_404(Course, pk=pk)
+    data = _data(request)
+    course.title = (data.get("title") or "").strip() or course.title
+    course.description = data.get("description", "")
+    course.save(update_fields=["title", "description"])
+    return HttpResponseRedirect(f"/elearning/courses/{course.pk}/")
+
+
+def _next_order(siblings):
+    """One past the highest sibling order. A count would collide once a
+    sibling has been soft-deleted and left a gap."""
+    highest = siblings.aggregate(m=Max("order"))["m"]
+    return 0 if highest is None else highest + 1
 
 
 @require_POST
@@ -548,9 +592,53 @@ def modules_create(request):
     Module.objects.create(
         course_id=course_id,
         title=data.get("title", ""),
-        order=data.get("order") or 0,
+        # New modules append to the end; order is managed via reorder arrows.
+        order=_next_order(Module.objects.filter(course_id=course_id)),
     )
     return HttpResponseRedirect(f"/elearning/courses/{course_id}/")
+
+
+@require_POST
+@login_required
+def modules_update(request, pk):
+    _require_staff(request)
+    module = get_object_or_404(Module, pk=pk)
+    data = _data(request)
+    module.title = (data.get("title") or "").strip() or module.title
+    module.save(update_fields=["title"])
+    return HttpResponseRedirect(f"/elearning/courses/{module.course_id}/")
+
+
+@require_POST
+@login_required
+def modules_delete(request, pk):
+    """Soft-delete a module (and, implicitly, its lessons drop out of the
+    course via the ``module__deleted`` filter)."""
+    _require_staff(request)
+    module = get_object_or_404(Module, pk=pk)
+    module.deleted = timezone.now()
+    module.save(update_fields=["deleted"])
+    return HttpResponseRedirect(f"/elearning/courses/{module.course_id}/")
+
+
+@require_POST
+@login_required
+@transaction.atomic
+def modules_reorder(request, pk):
+    """Swap a module with its neighbour (up/down), then normalise orders."""
+    _require_staff(request)
+    module = get_object_or_404(Module, pk=pk)
+    direction = _data(request).get("direction")
+    siblings = list(module.course.modules.all())
+    idx = [m.pk for m in siblings].index(module.pk)
+    swap = idx - 1 if direction == "up" else idx + 1
+    if 0 <= swap < len(siblings):
+        siblings[idx], siblings[swap] = siblings[swap], siblings[idx]
+        for i, m in enumerate(siblings):
+            if m.order != i:
+                m.order = i
+                m.save(update_fields=["order"])
+    return HttpResponseRedirect(f"/elearning/courses/{module.course_id}/")
 
 
 @require_POST
@@ -564,24 +652,105 @@ def lessons_create(request):
         title=data.get("title", ""),
         description=data.get("description", ""),
         youtube_url=data.get("youtube_url", ""),
-        order=data.get("order") or 0,
+        # New lessons append to the end; order is managed via reorder arrows.
+        order=_next_order(module.lessons.all()),
+        release_offset_days=data.get("release_offset_days") or 0,
     )
     return HttpResponseRedirect(f"/elearning/courses/{module.course_id}/")
 
 
 @require_POST
 @login_required
+def lessons_update(request, pk):
+    _require_staff(request)
+    lesson = get_object_or_404(Lesson, pk=pk)
+    data = _data(request)
+    lesson.title = (data.get("title") or "").strip() or lesson.title
+    lesson.description = data.get("description", "")
+    lesson.youtube_url = (data.get("youtube_url") or "").strip() or lesson.youtube_url
+    lesson.release_offset_days = data.get("release_offset_days") or 0
+    lesson.save(
+        update_fields=[
+            "title", "description", "youtube_url", "release_offset_days"
+        ]
+    )
+    return HttpResponseRedirect(f"/elearning/courses/{lesson.module.course_id}/")
+
+
+@require_POST
+@login_required
+def lessons_delete(request, pk):
+    _require_staff(request)
+    lesson = get_object_or_404(Lesson, pk=pk)
+    lesson.deleted = timezone.now()
+    lesson.save(update_fields=["deleted"])
+    return HttpResponseRedirect(f"/elearning/courses/{lesson.module.course_id}/")
+
+
+@require_POST
+@login_required
+@transaction.atomic
+def lessons_reorder(request, pk):
+    """Swap a lesson with its neighbour (up/down) within its module."""
+    _require_staff(request)
+    lesson = get_object_or_404(Lesson, pk=pk)
+    direction = _data(request).get("direction")
+    siblings = list(lesson.module.lessons.all())
+    idx = [l.pk for l in siblings].index(lesson.pk)
+    swap = idx - 1 if direction == "up" else idx + 1
+    if 0 <= swap < len(siblings):
+        siblings[idx], siblings[swap] = siblings[swap], siblings[idx]
+        for i, l in enumerate(siblings):
+            if l.order != i:
+                l.order = i
+                l.save(update_fields=["order"])
+    return HttpResponseRedirect(f"/elearning/courses/{lesson.module.course_id}/")
+
+
+@require_POST
+@login_required
 def cohorts_create(request):
+    """Create a cohort by picking trainees. No course yet — a course is added
+    and started later via a CourseRun on the cohort's page."""
     _require_staff(request)
     data = _data(request)
-    Cohort.objects.create(
-        name=data.get("name", ""),
-        course_id=data.get("course"),
-        circle_id=data.get("circle"),
-        start_date=data.get("start_date") or None,
-        send_hour=data.get("send_hour") or 14,
+    cohort = Cohort.objects.create(name=data.get("name", ""))
+    member_ids = _list(data, "members")
+    if member_ids:
+        cohort.members.set(
+            User.objects.filter(pk__in=member_ids, groups__name="trainee")
+        )
+    return HttpResponseRedirect(f"/elearning/cohorts/{cohort.pk}/")
+
+
+@require_POST
+@login_required
+@transaction.atomic
+def runs_create(request, pk):
+    """Add a course to a cohort and start it running: opens a new CourseRun
+    whose start_date/send_hour drive the drip. Any prior run is deactivated
+    and left as a record, so trainees only receive the new course."""
+    _require_staff(request)
+    cohort = get_object_or_404(Cohort, pk=pk)
+    data = _data(request)
+    course = Course.objects.filter(pk=data.get("course")).first()
+    start_date = _parse_date(data.get("start_date"))
+    if not course or not start_date:
+        raise PermissionDenied("A course and a valid start date are required.")
+    try:
+        send_hour = int(data.get("send_hour"))
+    except (TypeError, ValueError):
+        send_hour = 14
+    if not 0 <= send_hour <= 23:
+        send_hour = 14
+    cohort.runs.filter(active=True).update(active=False)
+    CourseRun.objects.create(
+        cohort=cohort,
+        course=course,
+        start_date=start_date,
+        send_hour=send_hour,
     )
-    return HttpResponseRedirect("/elearning/")
+    return HttpResponseRedirect(f"/elearning/cohorts/{cohort.pk}/")
 
 
 @login_required
@@ -590,35 +759,55 @@ def cohorts_show(request, pk):
     denied = _deny_non_staff(request)
     if denied:
         return denied
-    cohort = get_object_or_404(
-        Cohort.objects.select_related("course", "circle"), pk=pk
-    )
-    releases = list(cohort.releases.select_related("lesson").order_by("released_at"))
-    recipients = list(cohort.circle.members.all())
-    completed = set(
-        LessonCompletion.objects.filter(release__cohort=cohort).values_list(
-            "user_id", "release_id"
+    cohort = get_object_or_404(Cohort.objects.prefetch_related("members"), pk=pk)
+    runs = list(cohort.runs.select_related("course").all())
+    # The current run (active, else latest) is highlighted in the runs table.
+    current = next((r for r in runs if r.active), runs[0] if runs else None)
+
+    recipients = list(cohort.members.all())
+    # One watched grid per run/course, so a cohort's completion is visible for
+    # every course it has run — not just the current one.
+    watched_by_course = []
+    for run in runs:
+        releases = list(run.releases.select_related("lesson").order_by("released_at"))
+        if not releases:
+            continue
+        completed = set(
+            LessonCompletion.objects.filter(release__run=run).values_list(
+                "user_id", "release_id"
+            )
         )
-    )
-    lessons = [
-        {"release_id": r.id, "title": r.lesson.title, "released_at": r.released_at}
-        for r in releases
-    ]
-    rows = []
-    for user in recipients:
-        cells = [(user.pk, r.id) in completed for r in releases]
-        rows.append(
+        lessons = [
+            {"release_id": r.id, "title": r.lesson.title, "released_at": r.released_at}
+            for r in releases
+        ]
+        rows = []
+        for user in recipients:
+            cells = [(user.pk, l["release_id"]) in completed for l in lessons]
+            rows.append(
+                {
+                    "id": user.pk,
+                    "name": user.display_name,
+                    "watched_count": sum(cells),
+                    "cells": cells,
+                }
+            )
+        watched_by_course.append(
             {
-                "id": user.pk,
-                "name": user.display_name,
-                "watched_count": sum(cells),
-                "cells": cells,
+                "run_id": run.id,
+                "course_title": run.course.title,
+                "active": run.active,
+                "start_date": run.start_date,
+                "lessons": lessons,
+                "rows": rows,
             }
         )
     return {
         "cohort": CohortSerializer(cohort).data,
-        "lessons": lessons,
-        "rows": rows,
+        "runs": CourseRunSerializer(runs, many=True).data,
+        "current_run_id": current.id if current else None,
+        "courses": CourseSerializer(Course.objects.all(), many=True).data,
+        "watched_by_course": watched_by_course,
     }
 
 

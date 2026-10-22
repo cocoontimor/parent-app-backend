@@ -3,6 +3,7 @@ from django.contrib import admin
 from .models import (
     Cohort,
     Course,
+    CourseRun,
     Lesson,
     LessonCompletion,
     LessonRelease,
@@ -41,17 +42,23 @@ class LessonAdmin(admin.ModelAdmin):
 
 @admin.register(Cohort)
 class CohortAdmin(admin.ModelAdmin):
-    list_display = ["name", "course", "circle", "start_date", "send_hour", "active"]
+    list_display = ["name", "created"]
+    filter_horizontal = ["members"]
+
+
+@admin.register(CourseRun)
+class CourseRunAdmin(admin.ModelAdmin):
+    list_display = ["cohort", "course", "start_date", "send_hour", "active"]
     list_filter = ["active", "course"]
 
 
 @admin.register(LessonRelease)
 class LessonReleaseAdmin(admin.ModelAdmin):
-    list_display = ["cohort", "lesson", "released_at"]
-    list_filter = ["cohort"]
+    list_display = ["run", "lesson", "released_at"]
+    list_filter = ["run"]
 
 
 @admin.register(LessonCompletion)
 class LessonCompletionAdmin(admin.ModelAdmin):
     list_display = ["user", "release", "created"]
-    list_filter = ["release__cohort"]
+    list_filter = ["release__run"]

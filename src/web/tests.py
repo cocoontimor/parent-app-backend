@@ -1,4 +1,5 @@
 """Tests for the WhatsApp view-only (parent) access flow."""
+import json
 import tempfile
 from decimal import Decimal
 from unittest import mock
@@ -9,6 +10,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
 from children.models import Child, Circle, Member
+from elearning.models import Cohort, Course, CourseRun, Lesson, Module
 from payments.models import FeePayment
 from web.tokens import make_login_token, resolve_login_token
 
@@ -75,7 +77,7 @@ class ParentAccessTests(TestCase):
         self.assertNotIn("Zed", content)
 
     def test_staff_only_pages_denied(self):
-        for path in ("/messages/", "/urgent-alerts/", "/elearning/"):
+        for path in ("/messages/", "/urgent-alerts/", "/elearning/courses/"):
             resp = self.client.get(path)
             self.assertEqual(resp.status_code, 302, f"{path} should redirect parents")
             self.assertEqual(resp.url, "/")
@@ -93,7 +95,7 @@ class StaffAccessTests(TestCase):
         self.client.force_login(self.staff)
 
     def test_staff_reach_admin_pages(self):
-        for path in ("/messages/", "/urgent-alerts/", "/elearning/"):
+        for path in ("/messages/", "/urgent-alerts/", "/elearning/courses/"):
             resp = self.client.get(path)
             self.assertEqual(resp.status_code, 200, f"staff blocked from {path}")
 
@@ -120,3 +122,60 @@ class UpdatePhotoUploadTests(TestCase):
         self.assertEqual(update.photos.count(), 1)
         # The generic owner FK resolves back to the update.
         self.assertEqual(update.photos.first().owner, update)
+
+
+class CourseRunAndOrderTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(username="admin4", password="x")
+        self.admin.groups.add(Group.objects.get_or_create(name="staff")[0])
+        self.client.force_login(self.admin)
+        self.course_a = Course.objects.create(title="A")
+        self.course_b = Course.objects.create(title="B")
+        self.cohort = Cohort.objects.create(name="C1")
+
+    def _post(self, path, payload):
+        return self.client.post(
+            path, data=json.dumps(payload), content_type="application/json"
+        )
+
+    def test_new_run_deactivates_previous(self):
+        old = CourseRun.objects.create(
+            cohort=self.cohort, course=self.course_a, start_date="2026-09-01"
+        )
+        resp = self._post(
+            f"/elearning/cohorts/{self.cohort.pk}/runs/create/",
+            {"course": self.course_b.pk, "start_date": "2026-10-01", "send_hour": 9},
+        )
+        self.assertEqual(resp.status_code, 302)
+        old.refresh_from_db()
+        self.assertFalse(old.active)
+        active = CourseRun.objects.get(active=True)
+        self.assertEqual((active.course, active.send_hour), (self.course_b, 9))
+
+    def test_run_without_start_date_is_rejected(self):
+        resp = self._post(
+            f"/elearning/cohorts/{self.cohort.pk}/runs/create/",
+            {"course": self.course_a.pk},
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertFalse(CourseRun.objects.exists())
+
+    def test_new_module_goes_after_highest_order(self):
+        Module.objects.create(course=self.course_a, title="m0", order=0)
+        m1 = Module.objects.create(course=self.course_a, title="m1", order=1)
+        Module.objects.create(course=self.course_a, title="m2", order=2)
+        self._post(f"/elearning/modules/{m1.pk}/delete/", {})
+        self._post("/elearning/modules/create/", {"course": self.course_a.pk, "title": "m3"})
+        self.assertEqual(Module.objects.get(title="m3").order, 3)
+
+    def test_new_lesson_goes_after_highest_order(self):
+        module = Module.objects.create(course=self.course_a, title="m", order=0)
+        Lesson.objects.create(module=module, title="l0", youtube_url="u", order=0)
+        l1 = Lesson.objects.create(module=module, title="l1", youtube_url="u", order=1)
+        Lesson.objects.create(module=module, title="l2", youtube_url="u", order=2)
+        self._post(f"/elearning/lessons/{l1.pk}/delete/", {})
+        self._post(
+            "/elearning/lessons/create/",
+            {"module": module.pk, "title": "l3", "youtube_url": "u"},
+        )
+        self.assertEqual(Lesson.objects.get(title="l3").order, 3)

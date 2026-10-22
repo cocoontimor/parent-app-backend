@@ -7,20 +7,20 @@ WATCHED_PAYLOAD_PREFIX = "WATCHED:"
 
 
 def send_lesson_to_recipients(release):
-    """Send a released lesson's YouTube link to every member of the cohort's
-    circle, reusing the WhatsApp messaging pipeline. The message carries a
+    """Send a released lesson's YouTube link to every member of the run's
+    cohort, reusing the WhatsApp messaging pipeline. The message carries a
     "Mark as watched" quick-reply button whose payload identifies the release."""
     from messaging.services import send_whatsapp_message
 
-    cohort = release.cohort
+    run = release.run
     lesson = release.lesson
     body = (
         f"New lesson: {lesson.title}\n"
-        f"{cohort.course.title}\n"
+        f"{run.course.title}\n"
         f"Watch: {lesson.youtube_url}"
     )
 
-    recipients = cohort.recipients()
+    recipients = run.recipients()
     for user in recipients:
         send_whatsapp_message(
             user,
