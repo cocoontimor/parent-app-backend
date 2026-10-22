@@ -6,11 +6,13 @@ def _user_prop(request):
     u = request.user
     if not u.is_authenticated:
         return None
+    group_names = set(u.groups.values_list("name", flat=True))
     return {
         "id": u.pk,
         "username": u.username,
         "display_name": u.display_name,
-        "is_staff_group": u.groups.filter(name="staff").exists(),
+        "is_staff_group": "staff" in group_names,
+        "is_teacher": "teacher" in group_names,
     }
 
 

@@ -87,11 +87,16 @@ class UrgentAlertSendTests(TestCase):
         self.staff = User.objects.create_user(username="admin", is_staff=True)
 
     def _make_parent(self, phone, *, graduated):
+        from django.utils import timezone
+
         from children.models import Child, Circle, Member
 
         parent = User.objects.create_user(username=phone)
         parent.groups.add(self.parent_group)
-        child = Child.objects.create(name=f"child-{phone}", graduated=graduated)
+        child = Child.objects.create(
+            name=f"child-{phone}",
+            graduation_date=timezone.now().date() if graduated else None,
+        )
         circle = Circle.objects.create(name=f"fam-{phone}", type=Circle.Type.FAMILY)
         circle.children.add(child)
         Member.objects.create(

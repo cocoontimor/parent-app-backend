@@ -21,14 +21,25 @@ urlpatterns = [
     path("children/", views.children_index, name="children"),
     path("children/create/", views.children_create, name="children_create"),
     path("children/<str:pk>/graduate/", views.children_graduate, name="children_graduate"),
+    path("children/<str:pk>/edit/", views.children_update, name="children_update"),
+    path("children/<str:pk>/family/", views.children_family_update, name="children_family_update"),
+    path("parents/search/", views.parents_search, name="parents_search"),
     path("children/<str:pk>/", views.children_show, name="children_show"),
     path("updates/create/", views.updates_create, name="updates_create"),
     # Classes (Circle model/logic, exposed under /classes/)
     path("classes/", views.classes_index, name="classes"),
     path("classes/create/", views.classes_create, name="classes_create"),
+    path("classes/<str:pk>/edit/", views.classes_update, name="classes_update"),
     path("classes/<str:pk>/graduate/", views.classes_graduate, name="classes_graduate"),
+    path("classes/<str:pk>/attendance/", views.classes_attendance, name="classes_attendance"),
+    path(
+        "classes/<str:pk>/attendance/save/",
+        views.classes_attendance_save,
+        name="classes_attendance_save",
+    ),
     # Users
     path("users/", views.users_index, name="users"),
+    path("users/create/", views.users_create, name="users_create"),
     # Announcements
     path("announcements/", views.announcements_index, name="announcements"),
     path("announcements/create/", views.announcements_create, name="announcements_create"),
@@ -39,6 +50,8 @@ urlpatterns = [
     # Payments (school fees)
     path("payments/", views.payments_index, name="payments"),
     path("payments/create/", views.payments_create, name="payments_create"),
+    path("payments/generate/", views.payments_generate, name="payments_generate"),
+    path("payments/<str:pk>/mark/", views.payments_mark, name="payments_mark"),
     path(
         "payments/<str:pk>/send-confirmation/",
         views.payments_send_confirmation,

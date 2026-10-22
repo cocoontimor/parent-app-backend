@@ -48,6 +48,7 @@ INTERNAL_APPS = [
     "messaging",
     "elearning",
     "payments",
+    "attendance",
     "web",
 ]
 

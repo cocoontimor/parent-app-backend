@@ -77,7 +77,7 @@ def send_urgent_alert(alert_id):
     parents = User.objects.filter(
         groups__name="parent",
         circles__type="family",
-        circles__children__graduated=False,
+        circles__children__graduation_date__isnull=True,
     ).distinct()
     body = f"URGENT: {alert.title}\n\n{alert.body}"
 
