@@ -7,7 +7,11 @@ from utils.models import BaseModel
 class Child(BaseModel):
     name = models.CharField(max_length=255)
     date_of_birth = models.DateField(null=True, blank=True)
-    graduated = models.BooleanField(default=False)
+    graduation_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Date the child graduated. Null means still active.",
+    )
 
     class Meta:
         db_table = "children"
@@ -16,6 +20,9 @@ class Child(BaseModel):
     def __str__(self):
         return self.name
 
+    @property
+    def graduated(self):
+        return self.graduation_date is not None
 
 class Circle(BaseModel):
     class Type(models.TextChoices):

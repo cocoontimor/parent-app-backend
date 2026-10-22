@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 from pathlib import Path
 
 import environ
@@ -33,21 +34,21 @@ EXTERNAL_APPS = [
     "allauth.account",
     "django_extensions",
     "rest_framework",  # kept: serializers shape Inertia props
-    "rest_framework.authtoken",
     "inertia",
     "django_vite",
-    "django_celery_beat",
 ]
 
 INTERNAL_APPS = [
     "users",
     "utils",
+    "photos",
     "children",
     "announcements",
     "updates",
     "messaging",
     "elearning",
     "payments",
+    "attendance",
     "web",
 ]
 
@@ -235,8 +236,14 @@ if GS_BUCKET_NAME:
             "bucket_name": GS_BUCKET_NAME,
             "project_id": env("GS_PROJECT_ID", default=""),
             "location": env("GS_LOCATION", default="media"),
-            "default_acl": None,          # bucket uses uniform IAM
-            "querystring_auth": False,    # bucket is public-read
+            "default_acl": None,          # private objects; bucket uses uniform IAM
+            # Serve media via short-lived signed URLs rather than public links —
+            # these are children's photos, so objects must not be world-readable.
+            # Signing on Cloud Run uses the runtime SA's IAM signBlob (the
+            # metadata-server credentials have no private key), which requires
+            # the SA to hold roles/iam.serviceAccountTokenCreator on itself.
+            "querystring_auth": True,
+            "expiration": timedelta(minutes=15),
             "file_overwrite": False,
         },
     }

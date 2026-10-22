@@ -1,3 +1,5 @@
+@import './lib/lineicons.css';
+
 :root {
   --bg: #f4f5f7;
   --panel: #ffffff;
@@ -35,6 +37,16 @@ body {
   font-weight: 700;
   text-align: center;
 }
+.nav-group { padding: 0.35rem 0; }
+.nav-group + .nav-group { border-top: 1px solid var(--border); }
+.nav-group-label {
+  padding: 0.5rem 1.25rem 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted, #9ca3af);
+}
 .nav a {
   display: block;
   padding: 0.65rem 1.25rem;
@@ -68,6 +80,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  min-height: 2.5rem;
   margin-bottom: 1rem;
 }
 h1, h2, h3 { margin: 0; }
@@ -242,3 +255,84 @@ select[multiple] { height: auto; min-height: 6rem; }
   gap: 0.75rem;
   margin-top: 0.5rem;
 }
+
+/* ---- icons (Lineicons) --------------------------------------------------- */
+/* Lay out icon + label on one vertically-centered line; gap spaces them
+   whether the icon leads or trails the text. */
+button { display: inline-flex; align-items: center; justify-content: center; gap: 0.4em; }
+.nav a { display: flex; align-items: center; gap: 0.65rem; }
+.nav a .lni { width: 1.15em; text-align: center; }
+
+/* Icon-only button: fixed square so a row of them lines up at equal width. */
+.icon-btn { width: 2.15rem; height: 2.15rem; padding: 0; }
+.icon-btn .lni { font-size: 1.05em; }
+/* Card-header action: shared width so actions across cards line up and don't
+   resize when the label changes (e.g. Add Family <-> Edit Family). */
+.card-action { min-width: 9.5rem; }
+/* Group of icon-only actions in a table row. */
+.row-actions { display: inline-flex; align-items: center; gap: 0.4rem; }
+/* Destructive icon button: solid red, matching the blue default for actions. */
+.icon-btn.danger:hover { background: #b91c1c; }
+
+/* ---- file picker --------------------------------------------------------- */
+.filepicker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1.5px dashed var(--border);
+  border-radius: 8px;
+  padding: 1.1rem;
+  margin-bottom: 0.75rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+  background: #fafafa;
+  cursor: pointer;
+}
+.filepicker:hover,
+.filepicker.dragging { border-color: var(--accent); color: var(--accent); background: #eff6ff; }
+.filepicker .lni { font-size: 1.25em; }
+.filepicker u { text-underline-offset: 2px; }
+
+.filepicker-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+.filepicker-item {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+.filepicker-item img,
+.filepicker-item .filepicker-file { display: block; width: 100%; height: 78px; object-fit: cover; }
+.filepicker-item .filepicker-file {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 1.4rem;
+}
+.filepicker-name {
+  display: block;
+  padding: 0.3rem 0.45rem;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.filepicker-item button {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+}
+.filepicker-item button:hover { background: rgba(0, 0, 0, 0.78); }

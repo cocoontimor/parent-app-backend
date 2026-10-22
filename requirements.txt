@@ -7,8 +7,6 @@ django-environ==0.13.0
 django-extensions==4.1
 psycopg2-binary==2.9.12
 redis==5.3.1
-celery==5.6.3
-django-celery-beat==2.9.0
 gunicorn==22.0.0
 whitenoise==6.8.2
 django-storages[google]==1.14.4

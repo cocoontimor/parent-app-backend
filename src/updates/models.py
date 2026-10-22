@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.contrib.contenttypes.fields import GenericRelation
 from django.db import models
 
 from utils.models import BaseModel
@@ -11,7 +12,12 @@ class Update(BaseModel):
         related_name="updates",
     )
     text = models.TextField()
-    photo = models.ImageField(upload_to="updates/photos/", blank=True)
+    photos = GenericRelation(
+        "photos.Photo",
+        content_type_field="owner_type",
+        object_id_field="owner_id",
+        related_query_name="update",
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -33,6 +39,14 @@ class UrgentAlert(BaseModel):
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="urgent_alerts",
+    )
+    # Messages sent for this alert, linked via MessageLog's generic source FK.
+    # Reverse accessor for annotating recipient/ack counts per alert.
+    message_logs = GenericRelation(
+        "messaging.MessageLog",
+        content_type_field="source_type",
+        object_id_field="source_id",
+        related_query_name="urgent_alert",
     )
 
     class Meta:

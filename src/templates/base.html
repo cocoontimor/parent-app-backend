@@ -5,6 +5,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Cocoon Admin</title>
+    <!-- Absolute static path, not the static template tag: WhiteNoise serves
+         it in prod and it avoids a manifest lookup tests would fail without
+         collectstatic. -->
+    <link rel="icon" type="image/png" href="/static/favicon.png" />
+    <link rel="apple-touch-icon" href="/static/favicon.png" />
     {% vite_hmr_client %}
     {% vite_asset 'src/main.js' %}
   </head>

@@ -1,21 +1,46 @@
 <script>
-  import { useForm, router, page } from '@inertiajs/svelte'
+  import { router, page } from '@inertiajs/svelte'
   import Layout from '../../lib/Layout.svelte'
   import Modal from '../../lib/Modal.svelte'
+  import FilePicker from '../../lib/FilePicker.svelte'
 
   export let announcements = []
   export let circles = []
 
   $: isStaff = $page.props.auth?.user?.is_staff_group
+  $: isTeacher = $page.props.auth?.user?.is_teacher
+  // Teachers may announce to any class, but not to all parents.
+  $: canCreate = isStaff || isTeacher
 
   let open = false
-  const form = useForm({ title: '', body: '', circles: [] })
+  let title = ''
+  let body = ''
+  let selectedCircles = []
+  let files = []
+  let processing = false
 
   function submit() {
-    $form.post('/announcements/create/', {
+    if (!isStaff && selectedCircles.length === 0) return // teachers must pick a class
+    // Build FormData manually so array fields stay as repeated keys the
+    // backend reads with getlist(); Inertia's useForm would bracket them.
+    const data = new FormData()
+    data.append('title', title)
+    data.append('body', body)
+    for (const id of selectedCircles) data.append('circles', id)
+    for (const f of files) data.append('photos', f)
+
+    processing = true
+    router.post('/announcements/create/', data, {
+      forceFormData: true,
       onSuccess: () => {
         open = false
-        $form.reset()
+        title = ''
+        body = ''
+        selectedCircles = []
+        files = []
+      },
+      onFinish: () => {
+        processing = false
       },
     })
   }
@@ -26,8 +51,8 @@
 <Layout>
   <div class="page-head">
     <h1>Announcements</h1>
-    {#if isStaff}
-      <button on:click={() => (open = true)}>New Announcement</button>
+    {#if canCreate}
+      <button on:click={() => (open = true)}><i class="lni lni-plus"></i>New Announcement</button>
     {/if}
   </div>
 
@@ -53,22 +78,29 @@
   <Modal title="New Announcement" {open} onClose={() => (open = false)}>
     <form on:submit|preventDefault={submit}>
       <label for="title">Title</label>
-      <input id="title" bind:value={$form.title} required />
+      <input id="title" bind:value={title} required />
 
       <label for="body">Body</label>
-      <textarea id="body" rows="4" bind:value={$form.body} required></textarea>
+      <textarea id="body" rows="4" bind:value={body} required></textarea>
 
       <label for="circles">Classes</label>
-      <select id="circles" multiple bind:value={$form.circles}>
+      <select id="circles" multiple bind:value={selectedCircles} required={isTeacher && !isStaff}>
         {#each circles as c}
           <option value={c.id}>{c.name}</option>
         {/each}
       </select>
-      <p class="hint">Leave empty to send to all parents.</p>
+      {#if isStaff}
+        <p class="hint">Leave empty to send to all parents.</p>
+      {:else}
+        <p class="hint">Select which of your classes to announce to.</p>
+      {/if}
+
+      <label>Photos</label>
+      <FilePicker bind:files />
 
       <div class="modal-actions">
-        <button type="button" class="ghost" on:click={() => (open = false)}>Cancel</button>
-        <button type="submit" disabled={$form.processing}>Create</button>
+        <button type="button" class="ghost" on:click={() => (open = false)}><i class="lni lni-xmark"></i>Cancel</button>
+        <button type="submit" disabled={processing}><i class="lni lni-check"></i>Create</button>
       </div>
     </form>
   </Modal>

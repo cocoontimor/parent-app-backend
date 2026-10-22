@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Cohort, Course, Lesson, LessonRelease, Module
+from .models import Cohort, Course, CourseRun, Lesson, LessonRelease, Module
 
 
 class LessonSerializer(serializers.ModelSerializer):
@@ -35,30 +35,43 @@ class CourseSerializer(serializers.ModelSerializer):
         return obj.ordered_lessons().count()
 
 
-class CohortSerializer(serializers.ModelSerializer):
+class CourseRunSerializer(serializers.ModelSerializer):
     course_title = serializers.CharField(source="course.title", read_only=True)
-    circle_name = serializers.CharField(source="circle.name", read_only=True)
-    recipient_count = serializers.SerializerMethodField()
     released_count = serializers.SerializerMethodField()
     total_lessons = serializers.SerializerMethodField()
 
     class Meta:
-        model = Cohort
+        model = CourseRun
         fields = [
-            "id", "name", "course", "course_title", "circle", "circle_name",
-            "start_date", "send_hour", "active", "recipient_count",
-            "released_count", "total_lessons", "created",
+            "id", "cohort", "course", "course_title", "start_date",
+            "send_hour", "active", "released_count", "total_lessons", "created",
         ]
         read_only_fields = ["id", "created"]
-
-    def get_recipient_count(self, obj):
-        return obj.circle.members.count()
 
     def get_released_count(self, obj):
         return obj.releases.count()
 
     def get_total_lessons(self, obj):
         return obj.course.ordered_lessons().count()
+
+
+class CohortSerializer(serializers.ModelSerializer):
+    member_count = serializers.SerializerMethodField()
+    active_run = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Cohort
+        fields = ["id", "name", "member_count", "active_run", "created"]
+        read_only_fields = ["id", "created"]
+
+    def get_member_count(self, obj):
+        return obj.members.count()
+
+    def get_active_run(self, obj):
+        # Filter in Python so a prefetched runs__course is reused (no query
+        # per cohort).
+        run = next((r for r in obj.runs.all() if r.active), None)
+        return CourseRunSerializer(run).data if run else None
 
 
 class LessonReleaseSerializer(serializers.ModelSerializer):
