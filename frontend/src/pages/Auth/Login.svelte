@@ -26,7 +26,7 @@
       <label for="password">Password</label>
       <input id="password" type="password" bind:value={$form.password} autocomplete="current-password" required />
 
-      <button type="submit" disabled={$form.processing} style="width: 100%;">Log in</button>
+      <button type="submit" disabled={$form.processing} style="width: 100%;"><i class="lni lni-enter"></i>Log in</button>
     </form>
   </div>
 </div>

@@ -26,7 +26,7 @@
       {#each chips as c}
         <span class="ms-chip">
           {c.label}
-          <button type="button" on:click={() => remove(c.value)}>✕</button>
+          <button type="button" aria-label="Remove" on:click={() => remove(c.value)}><i class="lni lni-xmark"></i></button>
         </span>
       {/each}
     </div>

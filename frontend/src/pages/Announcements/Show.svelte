@@ -11,7 +11,7 @@
 <Layout>
   <div class="page-head">
     <h1>{announcement.title}</h1>
-    <a href="/announcements/" use:inertia><button class="ghost">← Back</button></a>
+    <a href="/announcements/" use:inertia><button class="ghost"><i class="lni lni-arrow-left"></i>Back</button></a>
   </div>
 
   <div class="card" style="margin-bottom: 1rem;">
