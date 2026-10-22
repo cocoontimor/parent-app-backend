@@ -10,7 +10,6 @@ services:
       - .env
     depends_on:
       - db
-      - redis
 
   db:
     image: postgres:16-alpine
@@ -22,33 +21,6 @@ services:
       POSTGRES_PASSWORD: postgres
     ports:
       - "5432:5432"
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-
-  celery:
-    build: .
-    command: celery -A cocoon worker -l info
-    volumes:
-      - ./src:/home/app/src
-    env_file:
-      - .env
-    depends_on:
-      - db
-      - redis
-
-  celery-beat:
-    build: .
-    command: celery -A cocoon beat -l info
-    volumes:
-      - ./src:/home/app/src
-    env_file:
-      - .env
-    depends_on:
-      - db
-      - redis
 
 volumes:
   postgres_data:

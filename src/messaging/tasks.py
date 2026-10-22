@@ -1,11 +1,8 @@
 import logging
 
-from celery import shared_task
-
 logger = logging.getLogger(__name__)
 
 
-@shared_task
 def send_daily_digest():
     """
     Daily digest job. For each parent with pending digest items,
@@ -56,7 +53,6 @@ def send_daily_digest():
     logger.info("Daily digest sent to %d parents", len(recipients))
 
 
-@shared_task
 def send_urgent_alert(alert_id):
     """Immediate send for urgent alerts. Bypasses digest.
 

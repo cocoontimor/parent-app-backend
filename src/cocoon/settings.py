@@ -37,7 +37,6 @@ EXTERNAL_APPS = [
     "rest_framework.authtoken",
     "inertia",
     "django_vite",
-    "django_celery_beat",
 ]
 
 INTERNAL_APPS = [

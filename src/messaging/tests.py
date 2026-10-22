@@ -12,32 +12,6 @@ from web.tokens import resolve_login_token
 User = get_user_model()
 
 
-class PeriodicTaskFixtureTests(TestCase):
-    def test_fixture_loads_expected_schedule(self):
-        from django.core.management import call_command
-        from django_celery_beat.models import PeriodicTask
-
-        # Migration 0004 already seeded the tasks; loading the fixture on top
-        # must reassert the same two rows without creating duplicates.
-        call_command("loaddata", "periodic_tasks", verbosity=0)
-
-        tasks = {t.name: t for t in PeriodicTask.objects.all()}
-        self.assertEqual(
-            set(tasks), {"send-daily-digest", "release-due-lessons"}
-        )
-        self.assertEqual(PeriodicTask.objects.count(), 2)
-
-        digest = tasks["send-daily-digest"]
-        self.assertEqual(digest.task, "messaging.tasks.send_daily_digest")
-        self.assertEqual((digest.crontab.hour, digest.crontab.minute), ("15", "0"))
-        self.assertEqual(str(digest.crontab.timezone), "Asia/Dili")
-
-        lessons = tasks["release-due-lessons"]
-        self.assertEqual(lessons.task, "elearning.tasks.release_due_lessons")
-        # Runs hourly; the per-cohort send_hour decides actual delivery time.
-        self.assertEqual((lessons.crontab.hour, lessons.crontab.minute), ("*", "0"))
-
-
 class WebhookSignatureTests(TestCase):
     def _post(self, body=b"{}", signature=None):
         headers = {}

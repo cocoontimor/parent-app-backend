@@ -1,11 +1,8 @@
 import logging
 
-from celery import shared_task
-
 logger = logging.getLogger(__name__)
 
 
-@shared_task
 def release_due_lessons():
     """
     Hourly drip job. For each active cohort, release any lessons that have come
