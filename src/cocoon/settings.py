@@ -34,7 +34,6 @@ EXTERNAL_APPS = [
     "allauth.account",
     "django_extensions",
     "rest_framework",  # kept: serializers shape Inertia props
-    "rest_framework.authtoken",
     "inertia",
     "django_vite",
 ]
